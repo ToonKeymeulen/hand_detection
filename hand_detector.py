@@ -14,7 +14,7 @@ class HandSignDetector:
         )
         self.mp_draw = mp.solutions.drawing_utils
         self.wave_buffer = []
-        self.wave_threshold = 5  # frames to detect wave
+        self.wave_threshold = 5  # frames to detect wave, TODO: Reason about this, why is this a good value? Look for whether another value is more suitable?
 
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, List[str]]:
         """Process a frame and return the annotated frame with detected signs."""
@@ -22,7 +22,7 @@ class HandSignDetector:
             print("Error: Received empty frame")
             return frame, []
 
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) # required for mediapipe, opencv uses BGR
         results = self.hands.process(frame_rgb)
         detected_signs = []
 
@@ -68,6 +68,13 @@ class HandSignDetector:
             if all(finger_states):
                 return "Open Hand"
             
+
+            # finger 0 => thumb
+            # finger 1 => index
+            # finger 2 => middle
+            # finger 3 => ring
+            # finger 4 => pinky
+            
             # Peace sign: index and middle fingers extended, others closed
             if (finger_states[1] and finger_states[2] and 
                 not finger_states[0] and not finger_states[3] and not finger_states[4]):
@@ -95,10 +102,16 @@ class HandSignDetector:
                 print("Invalid landmarks object")
                 return None
 
-            finger_tips = [4, 8, 12, 16, 20]  # Landmark indices for fingertips
-            finger_bases = [2, 5, 9, 13, 17]  # Landmark indices for finger bases
+            ## landmark detection gemini api
+            ## https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker
+
+            # Landmark indices for fingertips
+            finger_tips = [4, 8, 12, 16, 20] 
+            # Landmark indices for finger bases
+            finger_bases = [2, 5, 9, 13, 17] 
             
             # Verify all required landmarks are present
+            ## TODO: Reason about this. Is this a good way to do it? Should all landmarks be present?
             for idx in finger_tips + finger_bases:
                 if idx >= len(landmarks.landmark):
                     print(f"Missing landmark index: {idx}")
@@ -110,6 +123,7 @@ class HandSignDetector:
                 # For thumb, use x coordinate instead
                 if tip == 4:  # Thumb
                     extended = (landmarks.landmark[tip].x < landmarks.landmark[base].x)
+                ## all other fingers
                 else:
                     extended = (landmarks.landmark[tip].y < landmarks.landmark[base].y)
                 states.append(extended)
@@ -121,18 +135,19 @@ class HandSignDetector:
 
     def _detect_wave(self, landmarks) -> bool:
         """Detect waving motion based on hand movement."""
+        ## TODO: Should this not be smarter? As in what are the fingers doing? Imo waving is not just wrist movement. The stretching of the fingers is also important.
         try:
             if not landmarks or not hasattr(landmarks, 'landmark') or len(landmarks.landmark) == 0:
                 return False
 
-            wrist_y = landmarks.landmark[0].y
+            wrist_y = landmarks.landmark[0].y # wrist landmark
             self.wave_buffer.append(wrist_y)
             
             if len(self.wave_buffer) > self.wave_threshold:
                 self.wave_buffer.pop(0)
                 
                 # Check for oscillating motion
-                if len(self.wave_buffer) >= 4:
+                if len(self.wave_buffer) >= 4: ## TODO: this should be a variable, depends on the threshold
                     oscillations = 0
                     for i in range(len(self.wave_buffer) - 2):
                         if (self.wave_buffer[i] - self.wave_buffer[i+1]) * \

@@ -1,102 +1,112 @@
-import cv2
-import numpy as np
-from flask import Flask, request, jsonify
-import base64
-from hand_detector import HandSignDetector
-import threading
-from PIL import Image, ImageTk
-import io
-import sys
-import time
-import tkinter as tk
-from queue import Queue
-import threading
-import socket
+# Import required libraries
+import cv2                  # OpenCV library for image processing and computer vision
+import numpy as np         # NumPy for numerical operations on arrays
+from flask import Flask, request, jsonify  # Flask for creating web server endpoints
+import base64             # For encoding/decoding base64 image data
+from hand_detector import HandSignDetector  # Custom class for detecting hand signs
+import threading          # For running multiple processes concurrently
+from PIL import Image, ImageTk  # PIL for image processing, ImageTk for displaying images in tkinter
+import io                 # For handling byte streams
+import sys               # For system-level operations
+import time              # For adding delays and timing operations
+import tkinter as tk     # GUI framework for creating the window
+from queue import Queue  # Thread-safe queue for sharing frames between threads
+import socket           # For network socket operations
 
-app = Flask(__name__)
-detector = HandSignDetector()
-frame_queue = Queue(maxsize=1)
-should_exit = threading.Event()
+# Initialize Flask app and global objects
+app = Flask(__name__)    # Create Flask application instance
+detector = HandSignDetector()  # Initialize hand sign detector
+frame_queue = Queue(maxsize=1)  # Create queue to store latest frame (only keeps one frame)
+should_exit = threading.Event()  # Event flag to signal when program should exit
 
 class VideoWindow:
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Hand Sign Detection")
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # Initialize the main window
+        self.root = tk.Tk()  # Create main window
+        self.root.title("Hand Sign Detection")  # Set window title
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)  # Handle window close event
         
-        # Create canvas for video display
-        self.canvas = tk.Canvas(self.root, width=640, height=480)
-        self.canvas.pack()
+        # Create and configure the video display canvas
+        self.canvas = tk.Canvas(self.root, width=640, height=480)  # Create canvas for video
+        self.canvas.pack()  # Add canvas to window
         
-        # Create label for detected signs
+        # Create and configure the label for displaying detected signs
         self.sign_label = tk.Label(self.root, text="No signs detected", font=("Arial", 14))
-        self.sign_label.pack()
+        self.sign_label.pack()  # Add label to window
         
-        self.update_frame()
+        self.update_frame()  # Start the frame update loop
     
     def on_closing(self):
-        should_exit.set()
-        self.root.quit()
-        self.root.destroy()
+        # Handle window closing event
+        should_exit.set()  # Signal all threads to stop
+        self.root.quit()   # Stop the tkinter event loop
+        self.root.destroy()  # Destroy the window
     
     def update_frame(self):
         try:
+            # Check if there's a new frame available
+            # thread safe comms between webcam thread and GUI thread.
             if not frame_queue.empty():
-                frame, signs = frame_queue.get_nowait()
+                frame, signs = frame_queue.get_nowait()  # Get latest frame and detected signs
+                # not blocking
+
                 
-                # Convert OpenCV BGR to RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Convert frame color format for display
+                ## BGR was used for historical reasons
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
                 
-                # Convert to PIL Image and then to PhotoImage
-                image = Image.fromarray(frame_rgb)
-                image = image.resize((640, 480), Image.Resampling.LANCZOS)
-                self.photo = ImageTk.PhotoImage(image=image)
+                # Convert frame to format suitable for tkinter
+                image = Image.fromarray(frame_rgb)  # Convert numpy array to PIL Image, Tkinter uses PIL
+                image = image.resize((640, 480), Image.Resampling.LANCZOS)  # Resize image, consistent size, control memory usage, prevent scaling artifacts
+                ## other options are nearest, bilinear and bicubic. Each have there own use cases. Don't think this is relevant for us. 
+                self.photo = ImageTk.PhotoImage(image=image)  # Convert to PhotoImage, avoid garbage collection if set as instance variable
+                ## is required because only format tkinter can display
                 
-                # Update canvas
+                # Update the canvas with new frame
                 self.canvas.create_image(0, 0, image=self.photo, anchor=tk.NW)
                 
-                # Update sign label
+                # Update the text showing detected signs
                 if signs:
                     self.sign_label.config(text=f"Detected signs: {', '.join(signs)}")
                 else:
                     self.sign_label.config(text="No signs detected")
         
         except Exception as e:
-            print(f"Error updating frame: {e}")
+            print(f"Error updating frame: {e}")  # Log any errors during frame update
         
+        # Schedule next frame update if program is still running
         if not should_exit.is_set():
-            self.root.after(30, self.update_frame)
+            self.root.after(30, self.update_frame)  # Update every 30ms (approx. 33 fps)
 
 def process_base64_image(base64_string):
-    """Convert base64 image to numpy array."""
-    img_data = base64.b64decode(base64_string)
-    img = Image.open(io.BytesIO(img_data))
-    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    """Convert base64 image to numpy array for processing"""
+    img_data = base64.b64decode(base64_string)  # Decode base64 string to bytes
+    img = Image.open(io.BytesIO(img_data))      # Convert bytes to image
+    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)  # Convert to OpenCV format
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Endpoint for processing images sent as base64 strings."""
+    """Flask endpoint for processing images from HTTP requests"""
+    # Validate request contains image data
     if not request.json or 'image' not in request.json:
         return jsonify({'error': 'No image provided'}), 400
 
     try:
-        # Convert base64 image to numpy array
-        image = process_base64_image(request.json['image'])
-        
-        # Process the image
-        signs, _ = detector.process_image(image)
+        # Process the received image
+        image = process_base64_image(request.json['image'])  # Convert base64 to image
+        signs, _ = detector.process_image(image)  # Detect signs in image
         
         return jsonify({
-            'detected_signs': signs
+            'detected_signs': signs  # Return detected signs as JSON
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 500  # Return error if processing fails
 
 def run_webcam():
-    """Run the webcam capture and detection loop."""
+    """Main webcam capture and processing loop"""
     try:
-        # Initialize webcam
-        cap = cv2.VideoCapture(0)
+        # Set up webcam capture
+        cap = cv2.VideoCapture(0)  # Initialize webcam (device 0)
         if not cap.isOpened():
             print("Error: Could not open webcam")
             return
@@ -104,73 +114,75 @@ def run_webcam():
         print("\nWebcam initialized successfully!")
         print("Processing frames... The window should appear shortly.")
         
+        # Main processing loop
         while not should_exit.is_set():
-            ret, frame = cap.read()
+            ret, frame = cap.read()  # Read frame from webcam
             if not ret:
                 print("Error: Could not read frame")
                 break
 
             try:
-                # Process frame
-                annotated_frame, signs = detector.process_frame(frame)
+                # Process current frame
+                annotated_frame, signs = detector.process_frame(frame)  # Detect signs
                 
-                # Update the frame queue (drop frames if queue is full)
+                # Update frame queue, dropping old frame if necessary
                 if frame_queue.full():
                     frame_queue.get_nowait()  # Remove old frame
-                frame_queue.put_nowait((annotated_frame, signs))
+                frame_queue.put_nowait((annotated_frame, signs))  # Add new frame
                 
             except Exception as e:
                 print(f"Error processing frame: {e}")
                 continue
             
-            time.sleep(0.03)  # Limit frame rate
+            time.sleep(0.03)  # Add small delay to limit frame rate
         
     except Exception as e:
         print(f"Error in webcam thread: {e}")
     
     finally:
-        # Clean up
+        # Clean up resources
         print("Cleaning up resources...")
         if 'cap' in locals():
-            cap.release()
+            cap.release()  # Release webcam
         print("Cleanup complete!")
 
 def find_free_port(start_port=5001, max_port=5010):
-    """Find a free port to use for the Flask server."""
+    """Find available port for Flask server"""
     for port in range(start_port, max_port + 1):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # Create test socket
         try:
-            sock.bind(('0.0.0.0', port))
-            sock.close()
-            return port
+            sock.bind(('0.0.0.0', port))  # Try to bind to port
+            sock.close()  # Close test socket
+            return port  # Return available port
         except OSError:
-            continue
+            continue  # Try next port if current is in use
     return None
 
 def run_flask():
-    """Run the Flask server in a separate thread."""
-    port = find_free_port()
+    """Initialize and run Flask server"""
+    port = find_free_port()  # Find available port
     if port is None:
         print("Error: Could not find a free port for the Flask server")
         return
     
     print(f"\nStarting Flask server on port {port}")
-    app.run(host='0.0.0.0', port=port, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, use_reloader=False)  # Start Flask server
 
+# Main program entry point
 if __name__ == '__main__':
     print("Starting Hand Sign Detection...")
     print("Initializing webcam and Flask server...")
     
-    # Start webcam in a separate thread
-    webcam_thread = threading.Thread(target=run_webcam)
-    webcam_thread.daemon = True
-    webcam_thread.start()
+    # Initialize and start webcam thread
+    webcam_thread = threading.Thread(target=run_webcam)  # Create webcam thread
+    webcam_thread.daemon = True  # Set as daemon so it exits when main program exits
+    webcam_thread.start()  # Start webcam thread
     
-    # Start Flask in a separate thread
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    # Initialize and start Flask server thread
+    flask_thread = threading.Thread(target=run_flask)  # Create Flask thread
+    flask_thread.daemon = True  # Set as daemon so it exits when main program exits
+    flask_thread.start()  # Start Flask thread
     
-    # Run GUI in the main thread
-    window = VideoWindow()
-    window.root.mainloop() 
+    # Start GUI in main thread
+    window = VideoWindow()  # Create main window
+    window.root.mainloop()  # Start GUI event loop 
