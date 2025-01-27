@@ -1,0 +1,5 @@
+mediapipe==0.10.9
+opencv-python==4.8.1.78
+numpy==1.26.3
+flask==3.0.1
+pillow==10.2.0 
