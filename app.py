@@ -79,10 +79,43 @@ class VideoWindow:
             self.root.after(30, self.update_frame)  # Update every 30ms (approx. 33 fps)
 
 def process_base64_image(base64_string):
-    """Convert base64 image to numpy array for processing"""
-    img_data = base64.b64decode(base64_string)  # Decode base64 string to bytes
-    img = Image.open(io.BytesIO(img_data))      # Convert bytes to image
-    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)  # Convert to OpenCV format
+    """Convert base64 image to numpy array and preprocess for better detection."""
+    try:
+        # Decode base64 image
+        img_data = base64.b64decode(base64_string)
+        img = Image.open(io.BytesIO(img_data))
+        
+        # Convert to RGB if necessary
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Convert to numpy array
+        image = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        
+        # Resize if image is too large or too small
+        max_dimension = 1280
+        min_dimension = 320
+        height, width = image.shape[:2]
+        
+        if max(height, width) > max_dimension:
+            scale = max_dimension / max(height, width)
+            image = cv2.resize(image, None, fx=scale, fy=scale)
+        elif min(height, width) < min_dimension:
+            scale = min_dimension / min(height, width)
+            image = cv2.resize(image, None, fx=scale, fy=scale)
+        
+        # Enhance contrast
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        cl = clahe.apply(l)
+        enhanced = cv2.merge((cl,a,b))
+        image = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        
+        return image
+    except Exception as e:
+        print(f"Error processing image: {e}")
+        return None
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -94,13 +127,66 @@ def predict():
     try:
         # Process the received image
         image = process_base64_image(request.json['image'])  # Convert base64 to image
-        signs, _ = detector.process_image(image)  # Detect signs in image
         
-        return jsonify({
-            'detected_signs': signs  # Return detected signs as JSON
-        })
+        # Get landmarks and signs
+        frame_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = detector.hands.process(frame_rgb)
+        
+        # Create a copy of the image for annotation
+        annotated_image = image.copy()
+        
+        # Initialize response data
+        response_data = {
+            'detected_signs': [],
+            'landmarks_detected': False,
+            'num_hands_detected': 0,
+            'hand_landmarks': []
+        }
+        
+        if results.multi_hand_landmarks:
+            response_data['landmarks_detected'] = True
+            response_data['num_hands_detected'] = len(results.multi_hand_landmarks)
+            
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Draw landmarks on the image
+                detector.mp_draw.draw_landmarks(
+                    annotated_image,
+                    hand_landmarks,
+                    detector.mp_hands.HAND_CONNECTIONS,
+                    detector.mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=4),
+                    detector.mp_draw.DrawingSpec(color=(0, 0, 255), thickness=2)
+                )
+                
+                # Convert landmarks to list for JSON serialization
+                landmarks_list = [
+                    {
+                        'x': landmark.x,
+                        'y': landmark.y,
+                        'z': landmark.z
+                    }
+                    for landmark in hand_landmarks.landmark
+                ]
+                response_data['hand_landmarks'].append(landmarks_list)
+                
+                # Detect signs
+                sign = detector._detect_sign(hand_landmarks)
+                if sign:
+                    response_data['detected_signs'].append(sign)
+                    # Add text for detected sign
+                    h, w, _ = annotated_image.shape
+                    cv2.putText(annotated_image, sign,
+                              (int(hand_landmarks.landmark[0].x * w) - 20,
+                               int(hand_landmarks.landmark[0].y * h) - 20),
+                              cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        # Convert annotated image to base64
+        _, buffer = cv2.imencode('.jpg', annotated_image)
+        annotated_image_base64 = base64.b64encode(buffer).decode('utf-8')
+        response_data['annotated_image'] = annotated_image_base64
+        
+        return jsonify(response_data)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500  # Return error if processing fails
+        return jsonify({'error': str(e)}), 500
 
 def run_webcam():
     """Main webcam capture and processing loop"""
