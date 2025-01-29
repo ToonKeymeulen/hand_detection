@@ -141,8 +141,4 @@ class HandSignDetector:
                     self.last_wave_time = current_time
                     return True
         
-        return False
-
-    def process_image(self, image: np.ndarray) -> Tuple[List[str], np.ndarray]:
-        annotated_image, signs = self.process_frame(image)
-        return signs, annotated_image 
+        return False 

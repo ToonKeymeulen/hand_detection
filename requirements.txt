@@ -3,4 +3,7 @@ opencv-python==4.8.1.78
 numpy==1.26.3
 flask==3.0.1
 pillow==10.2.0
-requests==2.31.0 
+requests==2.31.0
+tqdm==4.66.1
+gdown==4.7.1
+kaggle==1.6.3 
