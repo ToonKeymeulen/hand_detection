@@ -54,9 +54,3 @@ The model has been benchmarked on a dataset of 10 images. Run the benchmark:
 ```bash
 python benchmark/run_benchmark.py
 ``` 
-
-## TODO
-
-- [ ] Does our code cover inverse hand sign detection
-- [ ] Test with our own hands 
-- [ ] Test with benchmark dataset
