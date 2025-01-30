@@ -7,7 +7,7 @@ class HandSignDetector:
     def __init__(self):
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
-            static_image_mode=True,
+            static_image_mode=False,
             max_num_hands=1,
             min_detection_confidence=0.6,
             min_tracking_confidence=0.6
@@ -76,7 +76,6 @@ class HandSignDetector:
                 tip_point = np.array([tip.x, tip.y])
                 ip_joint = np.array([landmarks.landmark[3].x, landmarks.landmark[3].y])
                 mcp_joint = np.array([landmarks.landmark[2].x, landmarks.landmark[2].y])
-                wrist = np.array([landmarks.landmark[0].x, landmarks.landmark[0].y])
                 
                 # Calculate angle
                 angle = self._calculate_angle(tip_point, ip_joint, mcp_joint)
