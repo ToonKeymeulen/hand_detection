@@ -1,48 +1,47 @@
-# Import required libraries
-import cv2                  # OpenCV library for image processing and computer vision
-import numpy as np         # NumPy for numerical operations on arrays
-from flask import Flask, request, jsonify  # Flask for creating web server endpoints
-import base64             # For encoding/decoding base64 image data
-from hand_detector import HandSignDetector  # Custom class for detecting hand signs
-import threading          # For running multiple processes concurrently
-from PIL import Image, ImageTk  # PIL for image processing, ImageTk for displaying images in tkinter
-
-import time              # For adding delays and timing operations
-import tkinter as tk     # GUI framework for creating the window
-from queue import Queue  # Thread-safe queue for sharing frames between threads
-import socket           # For network socket operations
+import cv2
+from flask import Flask
+from src.detector.hand_detector import HandSignDetector
+import threading
+import time
+from queue import Queue
+import socket
 from src.gui.video_window import VideoWindow
 from src.api.routes import api
 
 # Initialize Flask app and global objects
-app = Flask(__name__)    # Create Flask application instance
-detector = HandSignDetector()  # Initialize hand sign detector
+app = Flask(__name__)    
 frame_queue = Queue(maxsize=1)  # Create queue to store latest frame (only keeps one frame)
 should_exit = threading.Event()  # Event flag to signal when program should exit
+detector = HandSignDetector()  # Create an instance of HandSignDetector
 
 def find_free_port(start_port=5001, max_port=5010):
     """Find available port for Flask server"""
     for port in range(start_port, max_port + 1):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # Create test socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind(('0.0.0.0', port))  # Try to bind to port
-            sock.close()  # Close test socket
-            return port  # Return available port
+            sock.bind(('0.0.0.0', port))
+            sock.close()
+            return port
         except OSError:
-            continue  # Try next port if current is in use
+            continue
     return None
 
 def run_webcam():
     """Main webcam capture and processing loop"""
     try:
         # Set up webcam capture
-        cap = cv2.VideoCapture(0)  # Initialize webcam (device 0)
+        cap = cv2.VideoCapture(0)  # Initialize webcam (device 0), the default
         if not cap.isOpened():
             print("Error: Could not open webcam")
             return
 
         print("\nWebcam initialized successfully!")
         print("Processing frames... The window should appear shortly.")
+        
+        # FPS monitoring variables
+        frame_count = 0
+        fps_start_time = time.time()
+        fps = 0
         
         # Main processing loop
         while not should_exit.is_set():
@@ -54,6 +53,18 @@ def run_webcam():
             try:
                 # Process current frame
                 annotated_frame, signs = detector.process_frame(frame)  # Detect signs
+                
+                # Calculate and display FPS
+                frame_count += 1
+                if frame_count % 30 == 0:  # Update FPS every 30 frames
+                    current_time = time.time()
+                    fps = 30 / (current_time - fps_start_time)
+                    fps_start_time = current_time
+                    print(f"Current FPS: {fps:.2f}")
+                
+                # Add FPS text to frame
+                cv2.putText(annotated_frame, f"FPS: {fps:.1f}", (10, 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 
                 # Update frame queue, dropping old frame if necessary
                 if frame_queue.full():

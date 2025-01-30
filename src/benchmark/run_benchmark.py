@@ -10,7 +10,7 @@ from ..detector.hand_detector import HandSignDetector
 from .benchmark_dataset import HaGRIDDataset
 
 class HandSignBenchmark:
-    def __init__(self, output_dir: str = "benchmark/results"):
+    def __init__(self, output_dir: str = "src/benchmark/results"):
         self.detector = HandSignDetector()
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -26,10 +26,11 @@ class HandSignBenchmark:
         }
         
         # Initialize confusion matrix
-        for true_label in ["Peace Sign", "Open Hand"]:
+        for true_label in ["Peace Sign", "Open Hand", "Fist"]:
             results['confusion_matrix'][true_label] = {
                 "Peace Sign": 0,
                 "Open Hand": 0,
+                "Fist": 0,
                 "Other/None": 0
             }
         
@@ -50,13 +51,13 @@ class HandSignBenchmark:
                 for true_label in true_labels:
                     if detected_signs:
                         for detected_sign in detected_signs:
-                            if detected_sign in ["Peace Sign", "Open Hand"]:
+                            if detected_sign in ["Peace Sign", "Open Hand", "Fist"]:
                                 results['confusion_matrix'][true_label][detected_sign] += 1
                     else:
                         results['confusion_matrix'][true_label]["Other/None"] += 1
                 
-                # Save annotated image if it's a peace sign
-                if "Peace Sign" in true_labels:
+                # Save annotated image with detection info
+                if any(label in ["Peace Sign", "Fist"] for label in true_labels):  # Save peace and fist signs
                     # Add text showing what was detected
                     detection_text = f"Detected: {', '.join(detected_signs) if detected_signs else 'None'}"
                     cv2.putText(annotated_frame, detection_text, (10, 30),
@@ -71,7 +72,8 @@ class HandSignBenchmark:
                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
                     
                     # Save the annotated image
-                    output_path = os.path.join(annotated_dir, f"peace_sign_{idx}.jpg")
+                    gesture_name = "peace_sign" if "Peace Sign" in true_labels else "fist"
+                    output_path = os.path.join(annotated_dir, f"{gesture_name}_{idx}.jpg")
                     cv2.imwrite(output_path, annotated_frame)
                         
             except Exception as e:

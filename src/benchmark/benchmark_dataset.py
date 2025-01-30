@@ -1,29 +1,16 @@
 import os
-import json
 import cv2
 import numpy as np
-from typing import Dict, List, Tuple
-import requests
-from tqdm import tqdm
-import shutil
+from typing import  List, Tuple
 
 class HaGRIDDataset:
-    def __init__(self, base_dir: str = "benchmark/data"):
-        self.base_dir = base_dir
-        self.image_dir = os.path.join(base_dir, "images")
-        self.annotation_file = os.path.join(base_dir, "annotations.json")
+    def __init__(self):
         self.target_gestures = {
             "peace": "Peace Sign",
-            "palm": "Open Hand"
+            "palm": "Open Hand",
+            "fist": "Fist"
         }
-        
-        os.makedirs(self.base_dir, exist_ok=True)
-        os.makedirs(self.image_dir, exist_ok=True)
-        
-    def download_dataset(self):
-        """Not needed for local images."""
-        pass
-    
+
     def load_dataset(self) -> List[Tuple[np.ndarray, List[str]]]:
         """Load the dataset images from local directory."""
         dataset = []
@@ -31,7 +18,8 @@ class HaGRIDDataset:
         # Define directories for each gesture
         gesture_dirs = {
             "Open Hand": os.path.join("src", "benchmark", "data", "open"),
-            "Peace Sign": os.path.join("src", "benchmark", "data", "peace")
+            "Peace Sign": os.path.join("src", "benchmark", "data", "peace"),
+            "Fist": os.path.join("src", "benchmark", "data", "fist")
         }
         
         # Load images for each gesture
